@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "95269714575",
+    "project_id": "meditrack-49bf8",
+    "storage_bucket": "meditrack-49bf8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:95269714575:android:caf1d08378c3a98a738efa",
+        "android_client_info": {
+          "package_name": "com.example.rutasuno"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBc40zSa6MJ-4vmjxhA9rwxXLHr_Mg_IDM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
