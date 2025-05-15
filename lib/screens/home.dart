@@ -35,7 +35,7 @@ class Home extends StatelessWidget {
             tabs: [
               Tab(icon: Icon(Icons.dashboard), text: "Resumen"),
               Tab(icon: Icon(Icons.medication), text: "Medicamentos"),
-              Tab(icon: Icon(Icons.favorite), text: "Favoritos"),
+              Tab(icon: Icon(Icons.star), text: "Favoritos"),
               Tab(icon: Icon(Icons.tips_and_updates), text: "Consejos"),
               Tab(icon: Icon(Icons.spoke_outlined), text: "Soporte"),
             ],
