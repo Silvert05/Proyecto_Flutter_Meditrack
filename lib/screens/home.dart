@@ -9,6 +9,14 @@ class Home extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Obtenemos el ancho de la pantalla
+    final double screenWidth = MediaQuery.of(context).size.width;
+    // Definimos un punto de quiebre. 600 es un valor común.
+    final double breakpoint = 600.0;
+
+    // Decidimos si la TabBar debe ser scrollable basado en el ancho de la pantalla
+    final bool isScrollable = screenWidth < breakpoint;
+
     return DefaultTabController(
       length: 5,
       child: Scaffold(
@@ -27,12 +35,14 @@ class Home extends StatelessWidget {
               letterSpacing: 1.5,
             ),
           ),
-          bottom: const TabBar(
-            isScrollable: true,
+          bottom: TabBar(
+            // Quitamos const aquí
+            isScrollable: isScrollable, // Usamos la variable booleana
             indicatorColor: Colors.cyanAccent,
             labelColor: Colors.cyanAccent,
             unselectedLabelColor: Colors.white70,
-            tabs: [
+            tabs: const [
+              // Mantenemos const aquí
               Tab(icon: Icon(Icons.dashboard), text: "Resumen"),
               Tab(icon: Icon(Icons.medication), text: "Medicamentos"),
               Tab(icon: Icon(Icons.star), text: "Favoritos"),
@@ -84,7 +94,9 @@ class _ResumenTabState extends State<ResumenTab> {
       final dosesSnapshot =
           await FirebaseFirestore.instance.collection('doses').get();
       final historySnapshot =
-          await FirebaseFirestore.instance.collection('historial_medicamentos').get();
+          await FirebaseFirestore.instance
+              .collection('historial_medicamentos')
+              .get();
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final tomorrow = today.add(const Duration(days: 1));
@@ -92,73 +104,119 @@ class _ResumenTabState extends State<ResumenTab> {
 
       setState(() {
         _activeMedications = medicationsSnapshot.docs.length;
-        _pendingDosesToday = dosesSnapshot.docs
-            .where((doc) =>
-                (doc.data()['proximaToma'] as Timestamp?)?.toDate().isAtSameMomentAs(today) == true ||
-                ((doc.data()['proximaToma'] as Timestamp?)?.toDate().isAfter(today) == true &&
-                    (doc.data()['proximaToma'] as Timestamp?)?.toDate().isBefore(tomorrow) == true) &&
-                doc.data()['tomado'] == false)
-            .length;
-        _totalDosesTaken = historySnapshot.docs
-            .where((doc) => doc.data()['estado'] == 'Tomado')
-            .length;
+        _pendingDosesToday =
+            dosesSnapshot.docs
+                .where(
+                  (doc) =>
+                      (doc.data()['proximaToma'] as Timestamp?)
+                              ?.toDate()
+                              .isAtSameMomentAs(today) ==
+                          true ||
+                      ((doc.data()['proximaToma'] as Timestamp?)
+                                      ?.toDate()
+                                      .isAfter(today) ==
+                                  true &&
+                              (doc.data()['proximaToma'] as Timestamp?)
+                                      ?.toDate()
+                                      .isBefore(tomorrow) ==
+                                  true) &&
+                          doc.data()['tomado'] == false,
+                )
+                .length;
+        _totalDosesTaken =
+            historySnapshot.docs
+                .where((doc) => doc.data()['estado'] == 'Tomado')
+                .length;
 
         // Calcular adherencia para los últimos 7 días
         _adherenceData = List.generate(7, (index) {
           final dayToCheck = sevenDaysAgo.add(Duration(days: index));
-          final endOfDay = dayToCheck.add(const Duration(hours: 23, minutes: 59, seconds: 59));
-          final totalExpectedToday = dosesSnapshot.docs.where((doc) =>
-              (doc.data()['proximaToma'] as Timestamp?)?.toDate().isAfter(dayToCheck.subtract(const Duration(milliseconds: 1))) == true &&
-              (doc.data()['proximaToma'] as Timestamp?)?.toDate().isBefore(endOfDay.add(const Duration(milliseconds: 1))) == true).length;
-          final takenToday = historySnapshot.docs.where((doc) {
-            final registradoEn = doc.data()['registrado_en'];
-            if (registradoEn != null) {
-              DateTime? dateTaken;
-              if (registradoEn is String) {
-                try {
-                  dateTaken = DateTime.parse(registradoEn);
-                } catch (e) {
-                  print("Error parsing date string: $e");
-                  return false;
+          final endOfDay = dayToCheck.add(
+            const Duration(hours: 23, minutes: 59, seconds: 59),
+          );
+          final totalExpectedToday =
+              dosesSnapshot.docs
+                  .where(
+                    (doc) =>
+                        (doc.data()['proximaToma'] as Timestamp?)
+                                ?.toDate()
+                                .isAfter(
+                                  dayToCheck.subtract(
+                                    const Duration(milliseconds: 1),
+                                  ),
+                                ) ==
+                            true &&
+                        (doc.data()['proximaToma'] as Timestamp?)
+                                ?.toDate()
+                                .isBefore(
+                                  endOfDay.add(const Duration(milliseconds: 1)),
+                                ) ==
+                            true,
+                  )
+                  .length;
+          final takenToday =
+              historySnapshot.docs.where((doc) {
+                final registradoEn = doc.data()['registrado_en'];
+                if (registradoEn != null) {
+                  DateTime? dateTaken;
+                  if (registradoEn is String) {
+                    try {
+                      dateTaken = DateTime.parse(registradoEn);
+                    } catch (e) {
+                      print("Error parsing date string: $e");
+                      return false;
+                    }
+                  } else if (registradoEn is Timestamp) {
+                    dateTaken = registradoEn.toDate();
+                  }
+                  return doc.data()['estado'] == 'Tomado' &&
+                      dateTaken != null &&
+                      dateTaken.isAfter(
+                        dayToCheck.subtract(const Duration(milliseconds: 1)),
+                      ) &&
+                      dateTaken.isBefore(
+                        endOfDay.add(const Duration(milliseconds: 1)),
+                      );
                 }
-              } else if (registradoEn is Timestamp) {
-                dateTaken = registradoEn.toDate();
-              }
-              return doc.data()['estado'] == 'Tomado' &&
-                  dateTaken != null &&
-                  dateTaken.isAfter(dayToCheck.subtract(const Duration(milliseconds: 1))) &&
-                  dateTaken.isBefore(endOfDay.add(const Duration(milliseconds: 1)));
-            }
-            return false;
-          }).length;
-          return totalExpectedToday > 0 ? (takenToday / totalExpectedToday * 100).clamp(0, 100) : 0;
+                return false;
+              }).length;
+          return totalExpectedToday > 0
+              ? (takenToday / totalExpectedToday * 100).clamp(0, 100)
+              : 0;
         });
 
         // Datos de actividad (tomas realizadas por día) para los últimos 7 días
         _activityData = List.generate(7, (index) {
           final dayToCheck = sevenDaysAgo.add(Duration(days: index));
-          final endOfDay = dayToCheck.add(const Duration(hours: 23, minutes: 59, seconds: 59));
-          final takenOnDay = historySnapshot.docs.where((doc) {
-            final registradoEn = doc.data()['registrado_en'];
-            if (registradoEn != null) {
-              DateTime? dateTaken;
-              if (registradoEn is String) {
-                try {
-                  dateTaken = DateTime.parse(registradoEn);
-                } catch (e) {
-                  print("Error parsing date string for activity: $e");
-                  return false;
+          final endOfDay = dayToCheck.add(
+            const Duration(hours: 23, minutes: 59, seconds: 59),
+          );
+          final takenOnDay =
+              historySnapshot.docs.where((doc) {
+                final registradoEn = doc.data()['registrado_en'];
+                if (registradoEn != null) {
+                  DateTime? dateTaken;
+                  if (registradoEn is String) {
+                    try {
+                      dateTaken = DateTime.parse(registradoEn);
+                    } catch (e) {
+                      print("Error parsing date string for activity: $e");
+                      return false;
+                    }
+                  } else if (registradoEn is Timestamp) {
+                    dateTaken = registradoEn.toDate();
+                  }
+                  return doc.data()['estado'] == 'Tomado' &&
+                      dateTaken != null &&
+                      dateTaken.isAfter(
+                        dayToCheck.subtract(const Duration(milliseconds: 1)),
+                      ) &&
+                      dateTaken.isBefore(
+                        endOfDay.add(const Duration(milliseconds: 1)),
+                      );
                 }
-              } else if (registradoEn is Timestamp) {
-                dateTaken = registradoEn.toDate();
-              }
-              return doc.data()['estado'] == 'Tomado' &&
-                  dateTaken != null &&
-                  dateTaken.isAfter(dayToCheck.subtract(const Duration(milliseconds: 1))) &&
-                  dateTaken.isBefore(endOfDay.add(const Duration(milliseconds: 1)));
-            }
-            return false;
-          }).length;
+                return false;
+              }).length;
           return FlSpot(index.toDouble(), takenOnDay.toDouble());
         });
         _isLoading = false;
@@ -170,7 +228,9 @@ class _ResumenTabState extends State<ResumenTab> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Error al cargar la información del resumen. Por favor, intenta de nuevo.'),
+          content: Text(
+            'Error al cargar la información del resumen. Por favor, intenta de nuevo.',
+          ),
         ),
       );
     }
@@ -179,83 +239,68 @@ class _ResumenTabState extends State<ResumenTab> {
   @override
   Widget build(BuildContext context) {
     return _isLoading
-        ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+        ? const Center(
+          child: CircularProgressIndicator(color: Colors.cyanAccent),
+        )
         : ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text(
-                "Resumen de Salud",
-                style: TextStyle(
-                  fontSize: 22,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              "Resumen de Salud",
+              style: TextStyle(
+                fontSize: 22,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
               ),
-              const SizedBox(height: 16),
-              _infoCard(
-                "Medicamentos Activos",
-                "$_activeMedications",
-                Icons.medication,
-                Colors.cyanAccent,
+            ),
+            const SizedBox(height: 16),
+            _infoCard(
+              "Medicamentos Activos",
+              "$_activeMedications",
+              Icons.medication,
+              Colors.cyanAccent,
+            ),
+            _infoCard(
+              "Historial",
+              "$_totalDosesTaken tomados",
+              Icons.history,
+              Colors.lightGreenAccent,
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              "Sugerencias",
+              style: TextStyle(
+                fontSize: 20,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
               ),
-              _infoCard(
-                "Tomas Pendientes",
-                "$_pendingDosesToday hoy",
-                Icons.access_time,
-                Colors.orangeAccent,
+            ),
+            const SizedBox(height: 8),
+            _horizontalSuggestion(
+              "Hidratación",
+              Icons.water_drop,
+              Colors.cyanAccent,
+            ),
+            _horizontalSuggestion(
+              "Ejercicio",
+              Icons.fitness_center,
+              Colors.deepOrangeAccent,
+            ),
+            _horizontalSuggestion("Sueño", Icons.bed, Colors.deepPurpleAccent),
+            const SizedBox(height: 24),
+            const Text(
+              "Actividad Semanal (Tomas Realizadas)",
+              style: TextStyle(
+                fontSize: 20,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
               ),
-              _infoCard(
-                "Historial",
-                "$_totalDosesTaken tomados",
-                Icons.history,
-                Colors.lightGreenAccent,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                "Sugerencias",
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _horizontalSuggestion(
-                "Hidratación",
-                Icons.water_drop,
-                Colors.cyanAccent,
-              ),
-              _horizontalSuggestion(
-                "Ejercicio",
-                Icons.fitness_center,
-                Colors.deepOrangeAccent,
-              ),
-              _horizontalSuggestion("Sueño", Icons.bed, Colors.deepPurpleAccent),
-              const SizedBox(height: 24),
-              const Text(
-                "Adherencia al Tratamiento (Últimos 7 días)",
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _adherenceChart(_adherenceData),
-              const SizedBox(height: 24),
-              const Text(
-                "Actividad Semanal (Tomas Realizadas)",
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _activityChart(_activityData),
-            ],
-          );
+            ),
+            const SizedBox(height: 12),
+            _activityChart(_activityData),
+          ],
+        );
   }
 
   static Widget _infoCard(
@@ -357,9 +402,13 @@ class _ResumenTabState extends State<ResumenTab> {
                 getTitlesWidget: (value, _) {
                   final now = DateTime.now();
                   final sevenDaysAgo = now.subtract(const Duration(days: 6));
-                  final dayToCheck = sevenDaysAgo.add(Duration(days: value.toInt()));
+                  final dayToCheck = sevenDaysAgo.add(
+                    Duration(days: value.toInt()),
+                  );
                   return Text(
-                    DateFormat('E').format(dayToCheck), // Muestra la abreviatura del día (Lun, Mar, etc.)
+                    DateFormat('E').format(
+                      dayToCheck,
+                    ), // Muestra la abreviatura del día (Lun, Mar, etc.)
                     style: const TextStyle(color: Colors.white70),
                   );
                 },
@@ -398,21 +447,36 @@ class _ResumenTabState extends State<ResumenTab> {
           ),
           titlesData: FlTitlesData(
             show: true,
-            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
-              if (value % 1 == 0) {
-                return Text(value.toInt().toString(), style: const TextStyle(color: Colors.white70, fontSize: 12));
-              }
-              return const Text('');
-            })),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (value, meta) {
+                  if (value % 1 == 0) {
+                    return Text(
+                      value.toInt().toString(),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    );
+                  }
+                  return const Text('');
+                },
+              ),
+            ),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
                 getTitlesWidget: (value, _) {
                   final now = DateTime.now();
                   final sevenDaysAgo = now.subtract(const Duration(days: 6));
-                  final dayToCheck = sevenDaysAgo.add(Duration(days: value.toInt()));
+                  final dayToCheck = sevenDaysAgo.add(
+                    Duration(days: value.toInt()),
+                  );
                   return Text(
-                    DateFormat('E').format(dayToCheck), // Muestra la abreviatura del día (Lun, Mar, etc.)
+                    DateFormat('E').format(
+                      dayToCheck,
+                    ), // Muestra la abreviatura del día (Lun, Mar, etc.)
                     style: const TextStyle(color: Colors.white70),
                   );
                 },
@@ -456,7 +520,7 @@ class _MedicamentosTabState extends State<MedicamentosTab> {
     super.initState();
     _medicamentosStream =
         FirebaseFirestore.instance.collection('medicamentos').snapshots();
-        }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -464,50 +528,67 @@ class _MedicamentosTabState extends State<MedicamentosTab> {
       stream: _medicamentosStream,
       builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
         if (snapshot.hasError) {
-          return const Center(child: Text('Algo salió mal', style: TextStyle(color: Colors.white70)));
+          return const Center(
+            child: Text(
+              'Algo salió mal',
+              style: TextStyle(color: Colors.white70),
+            ),
+          );
         }
 
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Colors.cyanAccent));
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.cyanAccent),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('No hay medicamentos registrados.', style: TextStyle(color: Colors.white70)));
+          return const Center(
+            child: Text(
+              'No hay medicamentos registrados.',
+              style: TextStyle(color: Colors.white70),
+            ),
+          );
         }
 
         return ListView(
           padding: const EdgeInsets.all(16),
-          children: snapshot.data!.docs.map((DocumentSnapshot document) {
-            Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
-            return Card(
-              color: Colors.white.withOpacity(0.05),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              margin: const EdgeInsets.only(bottom: 14),
-              child: ListTile(
-                leading: const Icon(Icons.medication, color: Colors.cyanAccent),
-                title: Text(
-                  data['nombre'] ?? 'Nombre no disponible',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+          children:
+              snapshot.data!.docs.map((DocumentSnapshot document) {
+                Map<String, dynamic> data =
+                    document.data()! as Map<String, dynamic>;
+                return Card(
+                  color: Colors.white.withOpacity(0.05),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                ),
-                subtitle: Text(
-                  'Hora: ${data['horaToma'] ?? 'Hora no disponible'}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                trailing: const Icon(
-                  Icons.check_circle_outline,
-                  color: Colors.greenAccent,
-                ),
-                // onTap: () {
-                // Aquí puedes agregar la lógica para marcar como tomado
-                // },
-              ),
-            );
-          }).toList(),
+                  margin: const EdgeInsets.only(bottom: 14),
+                  child: ListTile(
+                    leading: const Icon(
+                      Icons.medication,
+                      color: Colors.cyanAccent,
+                    ),
+                    title: Text(
+                      data['nombre'] ?? 'Nombre no disponible',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Hora: ${data['horaToma'] ?? 'Hora no disponible'}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    trailing: const Icon(
+                      Icons.check_circle_outline,
+                      color: Colors.greenAccent,
+                    ),
+                    // onTap: () {
+                    // Aquí puedes agregar la lógica para marcar como tomado
+                    // },
+                  ),
+                );
+              }).toList(),
         );
       },
     );
@@ -525,81 +606,97 @@ class FavoritosTab extends StatelessWidget {
       builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
         if (snapshot.hasError) {
           return const Center(
-              child: Text('Algo salió mal al cargar los favoritos',
-                  style: TextStyle(color: Colors.white70)));
+            child: Text(
+              'Algo salió mal al cargar los favoritos',
+              style: TextStyle(color: Colors.white70),
+            ),
+          );
         }
 
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
-              child: CircularProgressIndicator(color: Colors.cyanAccent));
+            child: CircularProgressIndicator(color: Colors.cyanAccent),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(
-              child: Text('No tienes medicamentos en favoritos.',
-                  style: TextStyle(color: Colors.white70)));
+            child: Text(
+              'No tienes medicamentos en favoritos.',
+              style: TextStyle(color: Colors.white70),
+            ),
+          );
         }
 
         return ListView(
           padding: const EdgeInsets.all(16),
-          children: snapshot.data!.docs.map((DocumentSnapshot document) {
-            Map<String, dynamic> data =
-                document.data()! as Map<String, dynamic>;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.07),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: ListTile(
-                leading: const Icon(Icons.star, color: Colors.amber),
-                title: Text(
-                  data['nombre'] ?? 'Nombre no disponible',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
+          children:
+              snapshot.data!.docs.map((DocumentSnapshot document) {
+                Map<String, dynamic> data =
+                    document.data()! as Map<String, dynamic>;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                ),
-                subtitle: Text(
-                  'Dosis: ${data['dosis'] ?? 'No especificada'}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () async {
-                    try {
-                      await FirebaseFirestore.instance
-                          .collection('favoritos')
-                          .doc(document.id)
-                          .delete();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Medicamento eliminado de favoritos'),
-                          backgroundColor: Colors.orangeAccent,
-                        ),
-                      );
-                    } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Error al eliminar de favoritos: $e'),
-                          backgroundColor: Colors.redAccent,
-                        ),
-                      );
-                    }
-                  },
-                ),
-                onTap: () {
-                  // Aquí puedes agregar la lógica para ver los detalles del favorito si lo deseas
-                  print('Ver detalles de ${data['nombre']}');
-                },
-              ),
-            );
-          }).toList(),
+                  child: ListTile(
+                    leading: const Icon(Icons.star, color: Colors.amber),
+                    title: Text(
+                      data['nombre'] ?? 'Nombre no disponible',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Dosis: ${data['dosis'] ?? 'No especificada'}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
+                      onPressed: () async {
+                        try {
+                          await FirebaseFirestore.instance
+                              .collection('favoritos')
+                              .doc(document.id)
+                              .delete();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Medicamento eliminado de favoritos',
+                              ),
+                              backgroundColor: Colors.orangeAccent,
+                            ),
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Error al eliminar de favoritos: $e',
+                              ),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    onTap: () {
+                      // Aquí puedes agregar la lógica para ver los detalles del favorito si lo deseas
+                      print('Ver detalles de ${data['nombre']}');
+                    },
+                  ),
+                );
+              }).toList(),
         );
       },
     );
   }
 }
+
 // PESTAÑA 4: CONSEJOS
 class ConsejosTab extends StatelessWidget {
   const ConsejosTab({super.key});
@@ -640,48 +737,49 @@ class ConsejosTab extends StatelessWidget {
 
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: consejos
-          .map(
-            (c) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white12),
-                color: Colors.white.withOpacity(0.04),
-              ),
-              child: Row(
-                children: [
-                  Icon(c['icono'] as IconData, color: Colors.cyanAccent),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          c['titulo'] as String,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          c['descripcion'] as String,
-                          style: const TextStyle(
-                            color: Colors.white60,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
+      children:
+          consejos
+              .map(
+                (c) => Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white12),
+                    color: Colors.white.withOpacity(0.04),
                   ),
-                ],
-              ),
-            ),
-          )
-          .toList(),
+                  child: Row(
+                    children: [
+                      Icon(c['icono'] as IconData, color: Colors.cyanAccent),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              c['titulo'] as String,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              c['descripcion'] as String,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
     );
   }
 }
@@ -814,38 +912,39 @@ class _SoporteTabState extends State<SoporteTab>
                   position: _slideAnimation,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: faqs.map((faq) {
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white30),
-                          color: Colors.white.withOpacity(0.1),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              faq['pregunta']!,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                    children:
+                        faqs.map((faq) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white30),
+                              color: Colors.white.withOpacity(0.1),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              faq['respuesta']!,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  faq['pregunta']!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  faq['respuesta']!,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
+                          );
+                        }).toList(),
                   ),
                 ),
               ),
